@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from typing import Optional, List, Union, Dict
 import pickle
+from spellsuggester import SpellSuggester
+from distancias_parte2 import opcionesSpell
 
 ##################################################
 ##                                              ##
@@ -62,7 +64,9 @@ class SAR_Indexer:
         self.model = None
         self.MAX_EMBEDDINGS = 200 # número máximo de embedding que se extraen del kdtree en una consulta
         
-        # ALT - COMPLETAR
+        # ALT
+        self.speller = None
+        self.use_spelling = False
 
     ###############################
     ###                         ###
@@ -238,8 +242,43 @@ class SAR_Indexer:
                 "threshold" entero, umbral del corrector
         """
         
-        # ALT - COMPLETAR        
-        pass
+        self.use_spelling = use_spelling
+
+        if not self.use_spelling:
+            self.speller = None
+            return
+
+        # Si se activa, creamos el speller
+        try:
+            # 1. Obtener vocabulario
+            if 'all' not in self.index or not self.index['all']:
+                print("ERROR (set_spelling): No se ha cargado el índice (self.index['all'] está vacío).")
+                self.use_spelling = False
+                return
+
+            vocab = list(self.index['all'].keys())
+            
+            # 2. Obtener diccionario de distancias
+            dist_options = opcionesSpell
+            if not dist_options:
+                 print("ERROR (set_spelling): 'opcionesSpell' de distancias_parte2.py está vacío o no se importó.")
+                 self.use_spelling = False
+                 return
+
+            # 3. Crear el objeto SpellSuggester 
+            self.speller = SpellSuggester(dist_options, vocab)
+            
+            # 4. Almacenar la distancia y umbral seleccionados
+            if distance:
+                self.spelling_distance = distance
+            if threshold is not None:
+                self.spelling_threshold = threshold
+
+        except Exception as e:
+            print(f"Error crítico al inicializar SpellSuggester: {e}")
+            self.speller = None
+            self.use_spelling = False
+
 
     def tokenize(self, text:str):
         """
@@ -353,10 +392,38 @@ class SAR_Indexer:
 
         """
 
-        # ALT - MODIFICAR
         term = term.lower()
-        r1 = self.index[field].get(term, [])
-        return r1
+        
+        # 1. Buscar el término en el índice
+        posting = self.index[field].get(term)
+
+        if posting is not None:
+            # Caso 1: Término encontrado
+            return posting
+
+        # Caso 2: Término no encontrado (posting is None).
+        if not self.use_spelling or self.speller is None:
+            return []
+
+        # Caso 3: Término no encontrado y corrector SÍ activado.
+        suggestions = self.speller.suggest(
+            term, 
+            distance=self.spelling_distance, 
+            threshold=self.spelling_threshold
+        )
+
+        if not suggestions:
+            return []
+        
+        # Obtenemos la posting de la primera sugerencia
+        final_posting = self.get_posting(suggestions[0], field)
+        
+        # Unimos las postings del resto de sugerencias
+        for i in range(1, len(suggestions)):
+            suggestion_posting = self.get_posting(suggestions[i], field)
+            final_posting = self.or_posting(final_posting, suggestion_posting)
+            
+        return final_posting
 
 
     def reverse_posting(self, p:list):
