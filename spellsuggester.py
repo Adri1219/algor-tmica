@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import re
+from distancias_parte2 import *
 
 class SpellSuggester:
 
@@ -73,9 +74,16 @@ class SpellSuggester:
 
         resul = []
 
-        ########################################
-        # COMPLETAR
-        ########################################
+        dist_func = opcionesSpell[distance]
+
+        for word in self.vocabulary:
+            # Calcular distancia usando la optimización de threshold
+            dist = dist_func(term, word, threshold)
+
+            # Recopilar sugerencias
+            if dist <= threshold:
+                # Añadimos una lista [word] para que 'resul' sea lista de listas
+                resul.append([word])
         
         if flatten:
             resul = [word for wlist in resul for word in wlist]
